@@ -1,6 +1,6 @@
 import { createHash, createHmac, timingSafeEqual } from 'node:crypto';
 
-const MAX_PROMPT_CHARACTERS = 4_096;
+const MAX_PROMPT_BYTES = 4_096;
 
 // Keep these deliberately conservative: values crossing the control-plane
 // boundary are untrusted, so false positives are preferable to persistence.
@@ -8,7 +8,7 @@ const SECRET_PATTERN =
   /Bearer\s+[^\s"'`<>]+|gho_[A-Za-z0-9_-]+|github_pat_[A-Za-z0-9_]+|sk_[A-Za-z0-9_-]+|sb_secret_[A-Za-z0-9_-]+|postgres:\/\/[^\s"'`<>]+|session-login\?sid=[^\s"'`<>]+/gi;
 
 const REDACTION_PATTERN =
-  /Bearer\s+[^\s"'`<>]+|gho_[A-Za-z0-9_-]+|github_pat_[A-Za-z0-9_]+|sk_[A-Za-z0-9_-]+|sb_secret_[A-Za-z0-9_-]+|postgres:\/\/[^\s"'`<>]+|session-login\?sid=[^\s"'`<>]+|ssh:\/\/[^\s"'`<>]+|ssh\s+-[^\s\r\n]+(?:\s+[^\s\r\n]+)?/gi;
+  /Bearer\s+[^\s"'`<>]+|gho_[A-Za-z0-9_-]+|github_pat_[A-Za-z0-9_]+|sk_[A-Za-z0-9_-]+|sb_secret_[A-Za-z0-9_-]+|postgres:\/\/[^\s"'`<>]+|session-login\?sid=[^\s"'`<>]+|ssh:\/\/[^\s"'`<>]+|ssh\s+-[^\r\n]*/gi;
 
 function constantTimeEqual(left: Buffer, right: Buffer): boolean {
   return left.length === right.length && timingSafeEqual(left, right);
@@ -39,7 +39,7 @@ export function verifyWebhookSignature(
 }
 
 export function assertSafePrompt(value: unknown): asserts value is string {
-  if (typeof value !== 'string' || Array.from(value).length > MAX_PROMPT_CHARACTERS) {
+  if (typeof value !== 'string' || Buffer.byteLength(value, 'utf8') > MAX_PROMPT_BYTES) {
     throw new Error('Prompt must be a string of at most 4096 characters');
   }
 

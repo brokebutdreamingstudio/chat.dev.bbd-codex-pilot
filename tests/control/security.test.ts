@@ -30,9 +30,17 @@ describe('control security', () => {
     expect(() => assertSafePrompt('github_pat_abcdefghijklmnopqrstuv')).toThrow();
   });
 
-  it('bounds prompts by UTF-8 character count', () => {
+  it('bounds prompts by UTF-8 byte count', () => {
     expect(() => assertSafePrompt('a'.repeat(4096))).not.toThrow();
     expect(() => assertSafePrompt('a'.repeat(4097))).toThrow();
+    expect(() => assertSafePrompt('🙂'.repeat(1024))).not.toThrow();
+    expect(() => assertSafePrompt('🙂'.repeat(1025))).toThrow();
     expect(() => assertSafePrompt(null)).toThrow();
+  });
+
+  it('redacts a complete ssh command through its line boundary', () => {
+    const redacted = redactText('ssh -i /path/to/private-key user@host -p 22\nkeep this line');
+    expect(redacted.text).toBe('[REDACTED]\nkeep this line');
+    expect(redacted.redactionCount).toBe(1);
   });
 });
