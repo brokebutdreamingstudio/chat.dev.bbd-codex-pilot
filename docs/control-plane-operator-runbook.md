@@ -11,6 +11,26 @@ payloads into Git, chat, issues, tickets, shell history, or this document.
 6. Add `CONTROL_API_TOKEN` to the local Keychain under service `bbd.chatdev-control` and set local `CHATDEV_CONTROL_URL`.
 7. Run the smoke sequence in Task 7.
 
+## Retention schedule
+
+The migration configures the named pg_cron job
+`control-delete-expired-history-daily` at `03:17 UTC` every day. The job calls
+`control.delete_expired_history()`, which deletes command and callback history
+older than 30 days while retaining `control.agent_state`.
+
+After applying the migration through the approved workflow, verify the schedule
+without copying database connection details into output:
+
+```sql
+select jobname, schedule, command, active
+from cron.job
+where jobname = 'control-delete-expired-history-daily';
+```
+
+Expected: exactly one active row with schedule `17 3 * * *` and command
+`select control.delete_expired_history();`. This branch only configures and
+documents the job; it does not apply the migration to Supabase.
+
 ## Local operator client
 
 `chatdevctl` reads the control token only from the macOS Keychain service

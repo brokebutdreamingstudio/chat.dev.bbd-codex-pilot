@@ -129,6 +129,25 @@ describe('chatdevctl', () => {
     expect(result.stdout + result.stderr).toContain('[REDACTED]');
   });
 
+  it('uses the service redactor for GitHub token families and legacy Supabase JWTs', async () => {
+    const keychain = await fakeSecurity();
+    cleanups.push(keychain.cleanup);
+    const githubToken = 'ghp_abcdefghijklmnopqrstuvwxyz0123456789';
+    const serviceRoleJwt = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJyb2xlIjoic2VydmljZV9yb2xlIiwicmVmIjoidGVzdCJ9.c2lnbmF0dXJl';
+    const server = await controlServer({ githubToken, serviceRoleJwt });
+    cleanups.push(server.close);
+
+    const result = await runCli(['status'], {
+      PATH: `${keychain.path}:${process.env.PATH}`,
+      CHATDEV_CONTROL_URL: server.url,
+    });
+
+    expect(result.status).toBe(0);
+    expect(result.stdout).not.toContain(githubToken);
+    expect(result.stdout).not.toContain(serviceRoleJwt);
+    expect(result.stdout.match(/\[REDACTED\]/g)).toHaveLength(2);
+  });
+
   it('rejects an empty prompt and non-local insecure URLs before sending a request', async () => {
     const keychain = await fakeSecurity();
     cleanups.push(keychain.cleanup);

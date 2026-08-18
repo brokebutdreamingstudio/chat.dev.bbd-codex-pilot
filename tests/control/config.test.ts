@@ -25,4 +25,18 @@ describe('parseControlConfig', () => {
   it('rejects a missing database URL', () => {
     expect(() => parseControlConfig({ ...valid, SUPABASE_DB_URL: '' })).toThrow();
   });
+
+  it('ignores unrelated Node and Vercel environment variables', () => {
+    expect(parseControlConfig({
+      ...valid,
+      PATH: '/usr/local/bin:/usr/bin',
+      VERCEL: '1',
+      VERCEL_ENV: 'production',
+      NODE_ENV: 'production',
+    })).toMatchObject({
+      controlToken: 'test-control-token',
+      channelId: 'ch_test',
+      agent: { key: 'bbd-folio-concierge' },
+    });
+  });
 });

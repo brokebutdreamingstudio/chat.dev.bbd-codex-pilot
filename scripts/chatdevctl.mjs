@@ -3,12 +3,11 @@
 import { execFile } from 'node:child_process';
 import { randomUUID } from 'node:crypto';
 import { promisify } from 'node:util';
+import { redactCredentials } from '../src/lib/control/redaction.mjs';
 
 const executeFile = promisify(execFile);
 const ACTIONS = new Set(['status', 'start', 'stop', 'restart', 'prompt']);
 const AGENT_KEY = 'bbd-folio-concierge';
-const REDACTION_PATTERN =
-  /Bearer\s+[^\s"'`<>]+|gho_[A-Za-z0-9_-]+|github_pat_[A-Za-z0-9_]+|sk_[A-Za-z0-9_-]+|sb_secret_[A-Za-z0-9_-]+|postgres:\/\/[^\s"'`<>]+|session-login\?sid=[^\s"'`<>]+|ssh:\/\/[^\s"'`<>]+|ssh\s+-[^\r\n]*/gi;
 
 function usage() {
   return 'Usage: chatdevctl <status|start|stop|restart|prompt>';
@@ -43,7 +42,7 @@ async function readToken() {
 }
 
 function redact(value) {
-  return value.replace(REDACTION_PATTERN, '[REDACTED]');
+  return redactCredentials(value).text;
 }
 
 async function readStandardInput() {

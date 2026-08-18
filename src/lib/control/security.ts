@@ -1,14 +1,7 @@
 import { createHash, createHmac, timingSafeEqual } from 'node:crypto';
+import { containsCredential, redactCredentials } from './redaction.mjs';
 
 const MAX_PROMPT_BYTES = 4_096;
-
-// Keep these deliberately conservative: values crossing the control-plane
-// boundary are untrusted, so false positives are preferable to persistence.
-const SECRET_PATTERN =
-  /Bearer\s+[^\s"'`<>]+|gho_[A-Za-z0-9_-]+|github_pat_[A-Za-z0-9_]+|sk_[A-Za-z0-9_-]+|sb_secret_[A-Za-z0-9_-]+|postgres:\/\/[^\s"'`<>]+|session-login\?sid=[^\s"'`<>]+/gi;
-
-const REDACTION_PATTERN =
-  /Bearer\s+[^\s"'`<>]+|gho_[A-Za-z0-9_-]+|github_pat_[A-Za-z0-9_]+|sk_[A-Za-z0-9_-]+|sb_secret_[A-Za-z0-9_-]+|postgres:\/\/[^\s"'`<>]+|session-login\?sid=[^\s"'`<>]+|ssh:\/\/[^\s"'`<>]+|ssh\s+-[^\r\n]*/gi;
 
 function constantTimeEqual(left: Buffer, right: Buffer): boolean {
   return left.length === right.length && timingSafeEqual(left, right);
@@ -43,21 +36,13 @@ export function assertSafePrompt(value: unknown): asserts value is string {
     throw new Error('Prompt must be a string of at most 4096 characters');
   }
 
-  if (SECRET_PATTERN.test(value)) {
-    SECRET_PATTERN.lastIndex = 0;
+  if (containsCredential(value)) {
     throw new Error('Prompt contains a credential-like value');
   }
-  SECRET_PATTERN.lastIndex = 0;
 }
 
 export function redactText(value: string): { text: string; redactionCount: number } {
-  let redactionCount = 0;
-  const text = value.replace(REDACTION_PATTERN, () => {
-    redactionCount += 1;
-    return '[REDACTED]';
-  });
-  REDACTION_PATTERN.lastIndex = 0;
-  return { text, redactionCount };
+  return redactCredentials(value);
 }
 
 export function fingerprint(value: string): string {

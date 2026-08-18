@@ -30,6 +30,22 @@ describe('control security', () => {
     expect(() => assertSafePrompt('github_pat_abcdefghijklmnopqrstuv')).toThrow();
   });
 
+  it.each([
+    'gho_abcdefghijklmnopqrstuvwxyz0123456789',
+    'ghp_abcdefghijklmnopqrstuvwxyz0123456789',
+    'ghu_abcdefghijklmnopqrstuvwxyz0123456789',
+    'ghs_abcdefghijklmnopqrstuvwxyz0123456789',
+    'ghr_abcdefghijklmnopqrstuvwxyz0123456789',
+    'github_pat_abcdefghijklmnopqrstuvwxyz0123456789',
+    'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJyb2xlIjoic2VydmljZV9yb2xlIiwicmVmIjoidGVzdCJ9.c2lnbmF0dXJl',
+  ])('redacts and rejects supported credential family %s', (credential) => {
+    expect(redactText(`before ${credential} after`)).toEqual({
+      text: 'before [REDACTED] after',
+      redactionCount: 1,
+    });
+    expect(() => assertSafePrompt(`use ${credential}`)).toThrow();
+  });
+
   it('bounds prompts by UTF-8 byte count', () => {
     expect(() => assertSafePrompt('a'.repeat(4096))).not.toThrow();
     expect(() => assertSafePrompt('a'.repeat(4097))).toThrow();

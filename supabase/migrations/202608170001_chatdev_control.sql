@@ -60,3 +60,11 @@ end;
 $$;
 
 revoke all on function control.delete_expired_history() from public, anon, authenticated;
+
+create extension if not exists pg_cron;
+
+select cron.schedule(
+  'control-delete-expired-history-daily',
+  '17 3 * * *',
+  $$select control.delete_expired_history();$$
+);

@@ -43,8 +43,10 @@ export interface ControlDatabaseAdapter {
     status: Exclude<CommandStatus, 'pending'>;
     errorClass: string | null;
   }): Promise<CommandRecord>;
-  upsertAgentState(input: Omit<AgentState, 'agentKey' | 'updatedAt'>): Promise<AgentState>;
-  insertChannelEvent(input: Omit<ChannelEvent, 'id' | 'agentKey' | 'receivedAt'>): Promise<boolean>;
+  recordChannelEvent(input: {
+    event: Omit<ChannelEvent, 'id' | 'agentKey' | 'receivedAt'>;
+    state: Omit<AgentState, 'agentKey' | 'updatedAt'>;
+  }): Promise<boolean>;
   getAgentOverview(): Promise<AgentOverview>;
   deleteExpiredHistory(): Promise<void>;
 }
@@ -61,8 +63,10 @@ export interface ControlRepository {
     errorClass?: string | null,
   ): Promise<CommandRecord>;
   findCommandByIdempotencyKey(action: ControlAction, idempotencyKey: string): Promise<CommandRecord | null>;
-  upsertAgentState(input: Omit<AgentState, 'agentKey' | 'updatedAt'>): Promise<AgentState>;
-  insertChannelEvent(input: Omit<ChannelEvent, 'id' | 'agentKey' | 'receivedAt'>): Promise<boolean>;
+  recordChannelEvent(input: {
+    event: Omit<ChannelEvent, 'id' | 'agentKey' | 'receivedAt'>;
+    state: Omit<AgentState, 'agentKey' | 'updatedAt'>;
+  }): Promise<boolean>;
   getAgentOverview(): Promise<AgentOverview>;
   deleteExpiredHistory(): Promise<void>;
 }
@@ -135,13 +139,20 @@ function mapEvent(row: {
   };
 }
 
-function createPostgresAdapter(config: ControlConfig): ControlDatabaseAdapter {
-  const sql = postgres(config.supabaseDbUrl, {
+let pooledSql: ReturnType<typeof postgres> | undefined;
+
+function getPostgresClient(config: ControlConfig): ReturnType<typeof postgres> {
+  pooledSql ??= postgres(config.supabaseDbUrl, {
     max: 1,
     idle_timeout: 20,
     connect_timeout: 10,
     prepare: false,
   });
+  return pooledSql;
+}
+
+function createPostgresAdapter(config: ControlConfig): ControlDatabaseAdapter {
+  const sql = getPostgresClient(config);
 
   return {
     async findCommand(input) {
@@ -174,33 +185,41 @@ function createPostgresAdapter(config: ControlConfig): ControlDatabaseAdapter {
       if (!row) throw repositoryFailure('completeCommand');
       return mapCommand(row);
     },
-    async upsertAgentState(input) {
-      const [row] = await sql<Parameters<typeof mapState>[0][]>`
-        insert into control.agent_state (agent_key, lifecycle_status, safe_summary, updated_at)
-        values (${CONTROL_AGENT_KEY}, ${input.lifecycleStatus}, ${input.safeSummary}, now())
-        on conflict (agent_key) do update
-        set lifecycle_status = excluded.lifecycle_status,
-            safe_summary = excluded.safe_summary,
-            updated_at = excluded.updated_at
-        returning agent_key, lifecycle_status, safe_summary, updated_at
-      `;
-      if (!row) throw repositoryFailure('upsertAgentState');
-      return mapState(row);
-    },
-    async insertChannelEvent(input) {
-      const rows = await sql<{ id: string }[]>`
-        insert into control.channel_events (fingerprint, event_type, agent_key, redacted_payload, redaction_count)
-        values (
-          ${input.fingerprint},
-          ${input.eventType},
-          ${CONTROL_AGENT_KEY},
-          ${sql.json(input.redactedPayload)},
-          ${input.redactionCount}
+    async recordChannelEvent(input) {
+      const [result] = await sql<{ inserted: boolean; projected: number }[]>`
+        with inserted_event as (
+          insert into control.channel_events (fingerprint, event_type, agent_key, redacted_payload, redaction_count)
+          values (
+            ${input.event.fingerprint},
+            ${input.event.eventType},
+            ${CONTROL_AGENT_KEY},
+            ${sql.json(input.event.redactedPayload)},
+            ${input.event.redactionCount}
+          )
+          on conflict (fingerprint) do nothing
+          returning 1
+        ), projected_state as (
+          insert into control.agent_state (agent_key, lifecycle_status, safe_summary, updated_at)
+          select
+            ${CONTROL_AGENT_KEY},
+            ${input.state.lifecycleStatus},
+            ${input.state.safeSummary},
+            now()
+          from inserted_event
+          on conflict (agent_key) do update
+          set lifecycle_status = excluded.lifecycle_status,
+              safe_summary = excluded.safe_summary,
+              updated_at = excluded.updated_at
+          returning 1
         )
-        on conflict (fingerprint) do nothing
-        returning id
+        select
+          exists (select 1 from inserted_event) as inserted,
+          (select count(*)::integer from projected_state) as projected
       `;
-      return rows.length === 1;
+      if (!result || (result.inserted && result.projected !== 1)) {
+        throw repositoryFailure('recordChannelEvent');
+      }
+      return result.inserted;
     },
     async getAgentOverview() {
       const [states, commands, events] = await Promise.all([
@@ -267,18 +286,11 @@ export function createControlRepository(adapterOrConfig: ControlDatabaseAdapter 
         throw repositoryFailure('findCommandByIdempotencyKey');
       }
     },
-    upsertAgentState: async (input) => {
+    recordChannelEvent: async (input) => {
       try {
-        return await adapter.upsertAgentState(input);
+        return await adapter.recordChannelEvent(input);
       } catch {
-        throw repositoryFailure('upsertAgentState');
-      }
-    },
-    insertChannelEvent: async (input) => {
-      try {
-        return await adapter.insertChannelEvent(input);
-      } catch {
-        throw repositoryFailure('insertChannelEvent');
+        throw repositoryFailure('recordChannelEvent');
       }
     },
     getAgentOverview: async () => {

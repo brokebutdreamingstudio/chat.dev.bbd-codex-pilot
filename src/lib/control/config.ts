@@ -19,7 +19,16 @@ const environmentSchema = z
   .strict();
 
 export function parseControlConfig(env: Record<string, unknown>): ControlConfig {
-  const parsed = environmentSchema.parse(env);
+  const parsed = environmentSchema.parse({
+    CONTROL_API_TOKEN: env.CONTROL_API_TOKEN,
+    CHATDEV_CHANNEL_ID: env.CHATDEV_CHANNEL_ID,
+    CHATDEV_CHANNEL_API_KEY: env.CHATDEV_CHANNEL_API_KEY,
+    CHATDEV_CHANNEL_WEBHOOK_SECRET: env.CHATDEV_CHANNEL_WEBHOOK_SECRET,
+    CHATDEV_CONTROL_EXTERNAL_USER_ID: env.CHATDEV_CONTROL_EXTERNAL_USER_ID,
+    CHATDEV_CONTROL_DISPLAY_NAME: env.CHATDEV_CONTROL_DISPLAY_NAME,
+    CHATDEV_AGENT_NAME: env.CHATDEV_AGENT_NAME,
+    SUPABASE_DB_URL: env.SUPABASE_DB_URL,
+  });
   const agent: AgentBinding = {
     key: CONTROL_AGENT_KEY,
     name: parsed.CHATDEV_AGENT_NAME,

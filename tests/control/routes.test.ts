@@ -30,8 +30,7 @@ function repository(): ControlRepository {
     createPendingCommand: vi.fn(),
     completeCommand: vi.fn(),
     findCommandByIdempotencyKey: vi.fn(),
-    upsertAgentState: vi.fn(),
-    insertChannelEvent: vi.fn(),
+    recordChannelEvent: vi.fn(),
     getAgentOverview: vi.fn().mockResolvedValue(overview),
     deleteExpiredHistory: vi.fn(),
   };
