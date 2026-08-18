@@ -50,10 +50,10 @@ export function createCallbackPost(config: ControlConfig, repository: ControlRep
       ...(value.groupExternalId === undefined ? {} : { groupExternalId: value.groupExternalId }),
     };
     try {
-      const inserted = await repository.insertChannelEvent({
+      await repository.insertChannelEvent({
         fingerprint: fingerprint(rawBody), eventType: value.event, redactedPayload, redactionCount: redacted.redactionCount,
       });
-      if (inserted) await repository.upsertAgentState({ lifecycleStatus: value.event, safeSummary: redacted.text });
+      await repository.upsertAgentState({ lifecycleStatus: value.event, safeSummary: redacted.text });
       return new Response(null, { status: 204 });
     } catch {
       return jsonError(500, 'dispatch_failed');

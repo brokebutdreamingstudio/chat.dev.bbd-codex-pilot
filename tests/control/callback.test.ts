@@ -47,12 +47,25 @@ describe('chat.dev callback', () => {
     expect(store.upsertAgentState).toHaveBeenCalledWith({ lifecycleStatus: 'message.sent', safeSummary: '[REDACTED]' });
   });
 
-  it('does not project or insert a duplicate callback twice', async () => {
+  it('projects a duplicate callback before acknowledging it', async () => {
     const store = repository(false);
     const response = await createCallbackPost(config, store)(signedRequest(JSON.stringify(payload)));
     expect(response.status).toBe(204);
     expect(store.insertChannelEvent).toHaveBeenCalledOnce();
-    expect(store.upsertAgentState).not.toHaveBeenCalled();
+    expect(store.upsertAgentState).toHaveBeenCalledWith({ lifecycleStatus: 'message.sent', safeSummary: '[REDACTED]' });
+  });
+
+  it('retries a callback state projection after the event was already recorded', async () => {
+    const store = repository();
+    vi.mocked(store.insertChannelEvent).mockResolvedValueOnce(true).mockResolvedValueOnce(false);
+    vi.mocked(store.upsertAgentState).mockRejectedValueOnce(new Error('transient state failure')).mockResolvedValueOnce({
+      agentKey: 'bbd-folio-concierge', lifecycleStatus: 'message.sent', safeSummary: '[REDACTED]', updatedAt: '2026-08-17T00:00:00.000Z',
+    });
+    const handler = createCallbackPost(config, store);
+
+    expect((await handler(signedRequest(JSON.stringify(payload)))).status).toBe(500);
+    expect((await handler(signedRequest(JSON.stringify(payload)))).status).toBe(204);
+    expect(store.upsertAgentState).toHaveBeenCalledTimes(2);
   });
 
   it('rejects a mismatched callback identity', async () => {
