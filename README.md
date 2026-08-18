@@ -30,3 +30,7 @@ Deployment, Vercel and Supabase provisioning, all secret entry, Telegram bot
 configuration, and real Telegram webhook registration are founder actions.
 `.env.example` lists variable names only; do not commit secret values, real user
 data, or production logs.
+
+The [control-plane operator runbook](docs/control-plane-operator-runbook.md)
+defines the founder-only control deployment and smoke sequence. No secret is
+accepted in GitHub issues, PRs, `.env.example`, CLI arguments, or test fixtures.
