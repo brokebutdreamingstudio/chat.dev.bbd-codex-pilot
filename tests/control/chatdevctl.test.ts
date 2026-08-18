@@ -148,6 +148,25 @@ describe('chatdevctl', () => {
     expect(result.stdout.match(/\[REDACTED\]/g)).toHaveLength(2);
   });
 
+  it('redacts both Postgres credential URL schemes from API output', async () => {
+    const keychain = await fakeSecurity();
+    cleanups.push(keychain.cleanup);
+    const postgresUrl = 'postgres://test-user:test-password@db.example.test:5432/postgres';
+    const postgresqlUrl = 'postgresql://test-user:test-password@db.example.test:5432/postgres';
+    const server = await controlServer({ postgresUrl, postgresqlUrl });
+    cleanups.push(server.close);
+
+    const result = await runCli(['status'], {
+      PATH: `${keychain.path}:${process.env.PATH}`,
+      CHATDEV_CONTROL_URL: server.url,
+    });
+
+    expect(result.status).toBe(0);
+    expect(result.stdout).not.toContain(postgresUrl);
+    expect(result.stdout).not.toContain(postgresqlUrl);
+    expect(result.stdout.match(/\[REDACTED\]/g)).toHaveLength(2);
+  });
+
   it('rejects an empty prompt and non-local insecure URLs before sending a request', async () => {
     const keychain = await fakeSecurity();
     cleanups.push(keychain.cleanup);

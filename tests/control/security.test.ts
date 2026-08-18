@@ -46,6 +46,17 @@ describe('control security', () => {
     expect(() => assertSafePrompt(`use ${credential}`)).toThrow();
   });
 
+  it.each([
+    'postgres://test-user:test-password@db.example.test:5432/postgres',
+    'postgresql://test-user:test-password@db.example.test:5432/postgres',
+  ])('redacts and rejects Postgres credential URL %s', (credential) => {
+    expect(redactText(`database=${credential}`)).toEqual({
+      text: 'database=[REDACTED]',
+      redactionCount: 1,
+    });
+    expect(() => assertSafePrompt(`inspect ${credential}`)).toThrow();
+  });
+
   it('bounds prompts by UTF-8 byte count', () => {
     expect(() => assertSafePrompt('a'.repeat(4096))).not.toThrow();
     expect(() => assertSafePrompt('a'.repeat(4097))).toThrow();

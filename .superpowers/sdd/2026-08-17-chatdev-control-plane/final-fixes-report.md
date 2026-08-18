@@ -139,3 +139,52 @@ PASS
 ```
 
 Secret review found only synthetic test fixtures and pattern literals in the changed files; no real credential value was added.
+
+## Residual re-review closure — `postgresql://`
+
+The final re-review identified that the shared matcher covered `postgres://`
+but not PostgreSQL's equivalent `postgresql://` credential URL scheme. The
+shared service/CLI matcher now uses `postgres(?:ql)?://`, so both schemes are
+rejected by the prompt guard and redacted from persisted/returned/printed text.
+
+RED:
+
+```text
+npm test -- --run tests/control/security.test.ts tests/control/chatdevctl.test.ts
+Test Files 2 failed (2)
+Tests 2 failed | 18 passed (20)
+```
+
+Expected failures witnessed: service redaction left the `postgresql://`
+fixture unchanged with `redactionCount=0`, and the CLI printed that fixture
+while correctly redacting the `postgres://` fixture.
+
+GREEN:
+
+```text
+npm test -- --run tests/control/security.test.ts tests/control/chatdevctl.test.ts
+Test Files 2 passed (2)
+Tests 20 passed (20)
+```
+
+Fresh full verification after the residual fix:
+
+```text
+npm run lint
+PASS
+
+npm run typecheck
+PASS
+
+npm test -- --run
+Test Files 11 passed (11)
+Tests 57 passed (57)
+
+npm run build
+PASS
+
+git diff --check
+PASS
+```
+
+No external action was performed.
