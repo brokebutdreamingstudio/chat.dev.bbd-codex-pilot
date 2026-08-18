@@ -14,8 +14,7 @@ const environmentSchema = z
     CHATDEV_CONTROL_EXTERNAL_USER_ID: z.string().min(1),
     CHATDEV_CONTROL_DISPLAY_NAME: z.string().min(1),
     CHATDEV_AGENT_NAME: z.literal(CONTROL_AGENT_KEY),
-    NEXT_PUBLIC_SUPABASE_URL: z.string().url(),
-    SUPABASE_SERVICE_ROLE_KEY: z.string().min(1),
+    SUPABASE_DB_URL: z.string().url(),
   })
   .strict();
 
@@ -33,8 +32,7 @@ export function parseControlConfig(env: Record<string, unknown>): ControlConfig 
     channelId: parsed.CHATDEV_CHANNEL_ID,
     channelApiKey: parsed.CHATDEV_CHANNEL_API_KEY,
     webhookSecret: parsed.CHATDEV_CHANNEL_WEBHOOK_SECRET,
-    supabaseUrl: parsed.NEXT_PUBLIC_SUPABASE_URL,
-    supabaseServiceRoleKey: parsed.SUPABASE_SERVICE_ROLE_KEY,
+    supabaseDbUrl: parsed.SUPABASE_DB_URL,
     agent,
   };
 }

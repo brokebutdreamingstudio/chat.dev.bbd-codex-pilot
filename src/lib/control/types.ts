@@ -15,8 +15,7 @@ export interface ControlConfig {
   channelId: string;
   channelApiKey: string;
   webhookSecret: string;
-  supabaseUrl: string;
-  supabaseServiceRoleKey: string;
+  supabaseDbUrl: string;
   agent: AgentBinding;
 }
 

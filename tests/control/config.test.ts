@@ -9,8 +9,7 @@ const valid = {
   CHATDEV_CONTROL_EXTERNAL_USER_ID: 'bbd-founder-control',
   CHATDEV_CONTROL_DISPLAY_NAME: 'BBD Control',
   CHATDEV_AGENT_NAME: 'bbd-folio-concierge',
-  NEXT_PUBLIC_SUPABASE_URL: 'https://example.supabase.co',
-  SUPABASE_SERVICE_ROLE_KEY: 'test-service-role',
+  SUPABASE_DB_URL: 'postgres://test-user:test-password@example.com:5432/postgres',
 };
 
 describe('parseControlConfig', () => {
@@ -23,7 +22,7 @@ describe('parseControlConfig', () => {
     });
   });
 
-  it('rejects a missing service-role key', () => {
-    expect(() => parseControlConfig({ ...valid, SUPABASE_SERVICE_ROLE_KEY: '' })).toThrow();
+  it('rejects a missing database URL', () => {
+    expect(() => parseControlConfig({ ...valid, SUPABASE_DB_URL: '' })).toThrow();
   });
 });

@@ -1,4 +1,4 @@
-import { createClient } from '@supabase/supabase-js';
+import postgres from 'postgres';
 import { CONTROL_AGENT_KEY, type ControlAction, type ControlConfig, type CommandRecord } from './types';
 
 export type CommandStatus = CommandRecord['status'];
@@ -15,7 +15,7 @@ export interface ChannelEvent {
   fingerprint: string;
   eventType: string;
   agentKey: typeof CONTROL_AGENT_KEY;
-  redactedPayload: Record<string, unknown>;
+  redactedPayload: postgres.JSONValue;
   redactionCount: number;
   receivedAt: string;
 }
@@ -82,7 +82,7 @@ function repositoryFailure(operation: string): ControlRepositoryError {
 }
 
 function isControlConfig(value: ControlDatabaseAdapter | ControlConfig): value is ControlConfig {
-  return 'supabaseUrl' in value && 'supabaseServiceRoleKey' in value;
+  return 'supabaseDbUrl' in value;
 }
 
 function mapCommand(row: {
@@ -120,7 +120,7 @@ function mapEvent(row: {
   fingerprint: string;
   event_type: string;
   agent_key: string;
-  redacted_payload: Record<string, unknown>;
+  redacted_payload: postgres.JSONValue;
   redaction_count: number;
   received_at: string;
 }): ChannelEvent {
@@ -135,109 +135,110 @@ function mapEvent(row: {
   };
 }
 
-function createSupabaseAdapter(config: ControlConfig): ControlDatabaseAdapter {
-  const client = createClient(config.supabaseUrl, config.supabaseServiceRoleKey, {
-    db: { schema: 'control' },
+function createPostgresAdapter(config: ControlConfig): ControlDatabaseAdapter {
+  const sql = postgres(config.supabaseDbUrl, {
+    max: 1,
+    idle_timeout: 20,
+    connect_timeout: 10,
+    prepare: false,
   });
-  const commands = () => client.from('command_log');
-  const states = () => client.from('agent_state');
-  const events = () => client.from('channel_events');
 
   return {
     async findCommand(input) {
-      const { data, error } = await commands()
-        .select('id, agent_key, action, status, prompt_digest')
-        .eq('agent_key', input.agentKey)
-        .eq('action', input.action)
-        .eq('idempotency_key', input.idempotencyKey)
-        .maybeSingle();
-      if (error) throw repositoryFailure('findCommandByIdempotencyKey');
-      return data ? mapCommand(data) : null;
+      const [row] = await sql<Parameters<typeof mapCommand>[0][]>`
+        select id, agent_key, action, status, prompt_digest
+        from control.command_log
+        where agent_key = ${input.agentKey}
+          and action = ${input.action}
+          and idempotency_key = ${input.idempotencyKey}
+        limit 1
+      `;
+      return row ? mapCommand(row) : null;
     },
     async createCommand(input) {
-      const { data, error } = await commands()
-        .insert({
-          agent_key: input.agentKey,
-          action: input.action,
-          idempotency_key: input.idempotencyKey,
-          prompt_digest: input.promptDigest,
-          status: 'pending',
-        })
-        .select('id, agent_key, action, status, prompt_digest')
-        .single();
-      if (error || !data) throw repositoryFailure('createPendingCommand');
-      return mapCommand(data);
+      const [row] = await sql<Parameters<typeof mapCommand>[0][]>`
+        insert into control.command_log (agent_key, action, idempotency_key, prompt_digest, status)
+        values (${input.agentKey}, ${input.action}, ${input.idempotencyKey}, ${input.promptDigest}, 'pending')
+        returning id, agent_key, action, status, prompt_digest
+      `;
+      if (!row) throw repositoryFailure('createPendingCommand');
+      return mapCommand(row);
     },
     async completeCommand(input) {
-      const { data, error } = await commands()
-        .update({ status: input.status, error_class: input.errorClass, completed_at: new Date().toISOString() })
-        .eq('id', input.id)
-        .select('id, agent_key, action, status, prompt_digest')
-        .single();
-      if (error || !data) throw repositoryFailure('completeCommand');
-      return mapCommand(data);
+      const [row] = await sql<Parameters<typeof mapCommand>[0][]>`
+        update control.command_log
+        set status = ${input.status}, error_class = ${input.errorClass}, completed_at = now()
+        where id = ${input.id}
+        returning id, agent_key, action, status, prompt_digest
+      `;
+      if (!row) throw repositoryFailure('completeCommand');
+      return mapCommand(row);
     },
     async upsertAgentState(input) {
-      const { data, error } = await states()
-        .upsert(
-          {
-            agent_key: CONTROL_AGENT_KEY,
-            lifecycle_status: input.lifecycleStatus,
-            safe_summary: input.safeSummary,
-            updated_at: new Date().toISOString(),
-          },
-          { onConflict: 'agent_key' },
-        )
-        .select('agent_key, lifecycle_status, safe_summary, updated_at')
-        .single();
-      if (error || !data) throw repositoryFailure('upsertAgentState');
-      return mapState(data);
+      const [row] = await sql<Parameters<typeof mapState>[0][]>`
+        insert into control.agent_state (agent_key, lifecycle_status, safe_summary, updated_at)
+        values (${CONTROL_AGENT_KEY}, ${input.lifecycleStatus}, ${input.safeSummary}, now())
+        on conflict (agent_key) do update
+        set lifecycle_status = excluded.lifecycle_status,
+            safe_summary = excluded.safe_summary,
+            updated_at = excluded.updated_at
+        returning agent_key, lifecycle_status, safe_summary, updated_at
+      `;
+      if (!row) throw repositoryFailure('upsertAgentState');
+      return mapState(row);
     },
     async insertChannelEvent(input) {
-      const { error } = await events().insert({
-        fingerprint: input.fingerprint,
-        event_type: input.eventType,
-        agent_key: CONTROL_AGENT_KEY,
-        redacted_payload: input.redactedPayload,
-        redaction_count: input.redactionCount,
-      });
-      if (error?.code === '23505') return false;
-      if (error) throw repositoryFailure('insertChannelEvent');
-      return true;
+      const rows = await sql<{ id: string }[]>`
+        insert into control.channel_events (fingerprint, event_type, agent_key, redacted_payload, redaction_count)
+        values (
+          ${input.fingerprint},
+          ${input.eventType},
+          ${CONTROL_AGENT_KEY},
+          ${sql.json(input.redactedPayload)},
+          ${input.redactionCount}
+        )
+        on conflict (fingerprint) do nothing
+        returning id
+      `;
+      return rows.length === 1;
     },
     async getAgentOverview() {
-      const [stateResult, commandResult, eventResult] = await Promise.all([
-        states().select('agent_key, lifecycle_status, safe_summary, updated_at').eq('agent_key', CONTROL_AGENT_KEY).maybeSingle(),
-        commands()
-          .select('id, agent_key, action, status, prompt_digest')
-          .eq('agent_key', CONTROL_AGENT_KEY)
-          .order('created_at', { ascending: false })
-          .limit(1)
-          .maybeSingle(),
-        events()
-          .select('id, fingerprint, event_type, agent_key, redacted_payload, redaction_count, received_at')
-          .eq('agent_key', CONTROL_AGENT_KEY)
-          .order('received_at', { ascending: false })
-          .limit(10),
+      const [states, commands, events] = await Promise.all([
+        sql<Parameters<typeof mapState>[0][]>`
+          select agent_key, lifecycle_status, safe_summary, updated_at
+          from control.agent_state
+          where agent_key = ${CONTROL_AGENT_KEY}
+          limit 1
+        `,
+        sql<Parameters<typeof mapCommand>[0][]>`
+          select id, agent_key, action, status, prompt_digest
+          from control.command_log
+          where agent_key = ${CONTROL_AGENT_KEY}
+          order by created_at desc
+          limit 1
+        `,
+        sql<Parameters<typeof mapEvent>[0][]>`
+          select id, fingerprint, event_type, agent_key, redacted_payload, redaction_count, received_at
+          from control.channel_events
+          where agent_key = ${CONTROL_AGENT_KEY}
+          order by received_at desc
+          limit 10
+        `,
       ]);
-      if (stateResult.error || commandResult.error || eventResult.error) {
-        throw repositoryFailure('getAgentOverview');
-      }
       return {
-        agentState: stateResult.data ? mapState(stateResult.data) : null,
-        lastCommand: commandResult.data ? mapCommand(commandResult.data) : null,
-        events: (eventResult.data ?? []).map(mapEvent),
+        agentState: states[0] ? mapState(states[0]) : null,
+        lastCommand: commands[0] ? mapCommand(commands[0]) : null,
+        events: events.map(mapEvent),
       };
     },
     async deleteExpiredHistory() {
-      const { error } = await client.rpc('delete_expired_history');
-      if (error) throw repositoryFailure('deleteExpiredHistory');
+      await sql`select control.delete_expired_history()`;
     },
   };
 }
 
 export function createControlRepository(adapterOrConfig: ControlDatabaseAdapter | ControlConfig): ControlRepository {
-  const adapter = isControlConfig(adapterOrConfig) ? createSupabaseAdapter(adapterOrConfig) : adapterOrConfig;
+  const adapter = isControlConfig(adapterOrConfig) ? createPostgresAdapter(adapterOrConfig) : adapterOrConfig;
 
   return {
     createPendingCommand: async (input) => {
