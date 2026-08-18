@@ -62,11 +62,20 @@ export function createControlService(
         throw new Error('Prompt is only supported for prompt commands');
       }
 
-      const pending = await repository.createPendingCommand({
-        action,
-        idempotencyKey: input.idempotencyKey,
-        promptDigest,
-      });
+      let pending: CommandRecord;
+      try {
+        pending = await repository.createPendingCommand({
+          action,
+          idempotencyKey: input.idempotencyKey,
+          promptDigest,
+        });
+      } catch (error) {
+        const winner = await repository.findCommandByIdempotencyKey(action, input.idempotencyKey);
+        if (winner) {
+          return winner;
+        }
+        throw error;
+      }
 
       try {
         await client.dispatch(action, config.agent, prompt);

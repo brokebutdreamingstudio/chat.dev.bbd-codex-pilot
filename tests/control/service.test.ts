@@ -56,6 +56,35 @@ describe('control command service', () => {
     expect(store.createPendingCommand).not.toHaveBeenCalled();
   });
 
+  it('returns the winning command when concurrent inserts conflict without a second dispatch', async () => {
+    // This catches the read-then-insert race dispatching twice or rejecting the losing request.
+    const store = repository();
+    const pending = command();
+    vi.mocked(store.findCommandByIdempotencyKey)
+      .mockResolvedValueOnce(null)
+      .mockResolvedValueOnce(null)
+      .mockResolvedValueOnce(pending);
+    vi.mocked(store.createPendingCommand)
+      .mockResolvedValueOnce(pending)
+      .mockRejectedValueOnce(new Error('unique constraint'));
+    const client = channel();
+    const service = createControlService(config, store, client);
+    const input = {
+      agentKey: 'bbd-folio-concierge',
+      action: 'status',
+      idempotencyKey: 'concurrent-key',
+    };
+
+    const results = await Promise.all([service.execute(input), service.execute(input)]);
+
+    expect(results).toEqual([
+      expect.objectContaining({ id: 'cmd_1' }),
+      expect.objectContaining({ id: 'cmd_1' }),
+    ]);
+    expect(client.dispatch).toHaveBeenCalledTimes(1);
+    expect(store.completeCommand).toHaveBeenCalledTimes(1);
+  });
+
   it('persists only a prompt fingerprint before dispatching once and completing it', async () => {
     // This catches persisting raw prompt content or retrying a lifecycle command.
     const store = repository();
